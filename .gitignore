@@ -1,0 +1,25 @@
+# Rust
+/target
+**/*.rs.bk
+# Cargo.lock est versionné pour les applications binaires
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend (déjà géré dans web-frontend/.gitignore)
+# web-frontend/node_modules/
+# web-frontend/dist/
+
+# Logs
+*.log
+
+# Database (optionnel - décommenter si vous ne voulez pas versionner la DB)
+# .rustvault/
