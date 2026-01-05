@@ -1,7 +1,9 @@
 <script>
   import { onMount } from 'svelte';
 
+  let username = '';
   let password = '';
+  let tenantId = '';
   let isLocked = true;
   let error = '';
   let entries = [];
@@ -9,6 +11,9 @@
   let newValue = '';
   let loading = false;
   let version = 'v0.1.0'; // Version par défaut
+  let currentUser = null;
+  let currentTenant = null;
+  let isSuperuser = false;
 
   const API_BASE = '/api';
 
@@ -39,9 +44,9 @@
     loadVersion();
   });
 
-  async function unlock() {
-    if (!password) {
-      error = 'Veuillez entrer un mot de passe';
+  async function login() {
+    if (!username || !password) {
+      error = 'Veuillez entrer un nom d\'utilisateur et un mot de passe';
       return;
     }
 
@@ -49,22 +54,36 @@
     error = '';
 
     try {
-      const response = await fetch(`${API_BASE}/unlock`, {
+      const loginData = {
+        username: username,
+        password: password,
+        tenant_id: tenantId ? parseInt(tenantId) : null
+      };
+
+      const response = await fetch(`${API_BASE}/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify(loginData),
       });
 
       const data = await response.json();
 
-      if (data.success) {
+      if (data.success && data.data) {
         isLocked = false;
+        currentUser = data.data.user;
+        currentTenant = data.data.tenant;
+        isSuperuser = data.data.is_superuser;
+        username = '';
         password = '';
-        await loadEntries();
+        tenantId = '';
+        
+        if (!isSuperuser) {
+          await loadEntries();
+        }
       } else {
-        error = data.error || 'Mot de passe incorrect';
+        error = data.error || 'Identifiants incorrects';
       }
     } catch (e) {
       error = 'Erreur de connexion au serveur';
@@ -74,15 +93,20 @@
     }
   }
 
-  async function lock() {
+  async function logout() {
     loading = true;
     try {
-      await fetch(`${API_BASE}/lock`, {
+      await fetch(`${API_BASE}/logout`, {
         method: 'POST',
       });
       isLocked = true;
       entries = [];
+      username = '';
       password = '';
+      tenantId = '';
+      currentUser = null;
+      currentTenant = null;
+      isSuperuser = false;
       error = '';
     } catch (e) {
       console.error(e);
@@ -198,19 +222,33 @@
 
     {#if isLocked}
       <div class="lock-screen">
-        <h2>Coffre verrouillé</h2>
-        <p>Entrez votre mot de passe maître pour accéder au coffre</p>
+        <h2>Connexion</h2>
+        <p>Connectez-vous pour accéder à votre coffre</p>
         
-        <div class="input-group">
+        <div class="login-form">
+          <input
+            type="text"
+            bind:value={username}
+            placeholder="Nom d'utilisateur"
+            on:keypress={(e) => handleKeyPress(e, login)}
+            disabled={loading}
+          />
           <input
             type="password"
             bind:value={password}
-            placeholder="Mot de passe maître"
-            on:keypress={(e) => handleKeyPress(e, unlock)}
+            placeholder="Mot de passe"
+            on:keypress={(e) => handleKeyPress(e, login)}
             disabled={loading}
           />
-          <button on:click={unlock} disabled={loading || !password}>
-            {loading ? 'Déverrouillage...' : 'Déverrouiller'}
+          <input
+            type="number"
+            bind:value={tenantId}
+            placeholder="ID Tenant (optionnel pour superuser)"
+            on:keypress={(e) => handleKeyPress(e, login)}
+            disabled={loading}
+          />
+          <button on:click={login} disabled={loading || !username || !password}>
+            {loading ? 'Connexion...' : 'Se connecter'}
           </button>
         </div>
 
@@ -221,17 +259,38 @@
     {:else}
       <div class="unlock-screen">
         <div class="header">
-          <h2>Coffre déverrouillé</h2>
-          <button on:click={lock} class="lock-btn" disabled={loading}>
-            🔒 Verrouiller
-          </button>
+          <h2>
+            {#if isSuperuser}
+              Panel Superuser
+            {:else}
+              Coffre déverrouillé
+              {#if currentTenant}
+                - {currentTenant.name}
+              {/if}
+            {/if}
+          </h2>
+          <div class="user-info">
+            {#if currentUser}
+              <span class="user-badge">{currentUser.username}</span>
+            {/if}
+            <button on:click={logout} class="lock-btn" disabled={loading}>
+              🔒 Déconnexion
+            </button>
+          </div>
         </div>
 
         {#if error}
           <div class="error">{error}</div>
         {/if}
 
-        <div class="section">
+        {#if isSuperuser}
+          <div class="section">
+            <h3>Panel Superuser</h3>
+            <p>Vous êtes connecté en tant que superuser. Vous pouvez gérer les tenants mais ne pouvez pas accéder aux entrées cryptées.</p>
+            <p><em>Les fonctionnalités de gestion des tenants seront disponibles prochainement.</em></p>
+          </div>
+        {:else}
+          <div class="section">
           <h3>Entrées ({entries.length})</h3>
           {#if loading && entries.length === 0}
             <div class="loading">Chargement...</div>
@@ -256,29 +315,30 @@
               {/each}
             </div>
           {/if}
-        </div>
-
-        <div class="section">
-          <h3>Ajouter une entrée</h3>
-          <div class="add-form">
-            <input
-              type="text"
-              bind:value={newName}
-              placeholder="Nom de l'entrée"
-              disabled={loading}
-            />
-            <input
-              type="text"
-              bind:value={newValue}
-              placeholder="Valeur"
-              on:keypress={(e) => handleKeyPress(e, addEntry)}
-              disabled={loading}
-            />
-            <button on:click={addEntry} disabled={loading || !newName || !newValue}>
-              {loading ? 'Ajout...' : '➕ Ajouter'}
-            </button>
           </div>
-        </div>
+
+          <div class="section">
+            <h3>Ajouter une entrée</h3>
+            <div class="add-form">
+              <input
+                type="text"
+                bind:value={newName}
+                placeholder="Nom de l'entrée"
+                disabled={loading}
+              />
+              <input
+                type="text"
+                bind:value={newValue}
+                placeholder="Valeur"
+                on:keypress={(e) => handleKeyPress(e, addEntry)}
+                disabled={loading}
+              />
+              <button on:click={addEntry} disabled={loading || !newName || !newValue}>
+                {loading ? 'Ajout...' : '➕ Ajouter'}
+              </button>
+            </div>
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
@@ -354,6 +414,35 @@
     margin-bottom: 30px;
   }
 
+  .login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .login-form input {
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    font-size: 16px;
+    transition: border-color 0.3s;
+  }
+
+  .login-form input:focus {
+    outline: none;
+    border-color: #667eea;
+  }
+
+  .login-form input:disabled {
+    background: #f5f5f5;
+    cursor: not-allowed;
+  }
+
+  .login-form button {
+    margin-top: 10px;
+  }
+
   .input-group {
     display: flex;
     gap: 10px;
@@ -377,6 +466,21 @@
   .input-group input:disabled {
     background: #f5f5f5;
     cursor: not-allowed;
+  }
+
+  .user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .user-badge {
+    background: #667eea;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.9em;
+    font-weight: 600;
   }
 
   button {

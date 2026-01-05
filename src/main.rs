@@ -13,6 +13,9 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 mod web;
+mod tenant;
+mod vault;
+mod web_session;
 
 #[derive(Parser)]
 #[command(name = "rustvault")]
@@ -54,6 +57,31 @@ enum Commands {
         #[arg(short, long, default_value = "8080")]
         port: u16,
     },
+    /// Initialize the database (multi-tenant)
+    InitDb {
+        /// Force reinitialization (deletes existing database)
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Create a superuser
+    CreateSuperuser {
+        /// Username for the superuser
+        username: String,
+    },
+    /// Create a new tenant
+    CreateTenant {
+        /// Name of the tenant
+        name: String,
+    },
+    /// Create a user for a tenant
+    CreateUser {
+        /// Tenant ID
+        tenant_id: i64,
+        /// Username
+        username: String,
+    },
+    /// List all tenants
+    ListTenants,
 }
 
 #[tokio::main]
@@ -70,6 +98,44 @@ async fn main() -> Result<()> {
         Commands::Gui => run_gui(db_path),
         Commands::Server { port } => {
             web::run_server(port, db_path).await?;
+        }
+        Commands::InitDb { force } => {
+            if force && db_path.exists() {
+                println!("Deleting existing database...");
+                std::fs::remove_file(&db_path)?;
+            }
+            tenant::init_database(&db_path)?;
+        }
+        Commands::CreateSuperuser { username } => {
+            let password = prompt_password()?;
+            print!("Confirm password: ");
+            io::stdout().flush()?;
+            let password2 = read_password()?;
+            if password != password2 {
+                return Err(anyhow!("Passwords do not match"));
+            }
+            tenant::create_superuser(&db_path, &username, &password)?;
+        }
+        Commands::CreateTenant { name } => {
+            let tenant_id = tenant::create_tenant(&db_path, &name)?;
+            println!("Tenant created with ID: {}", tenant_id);
+        }
+        Commands::CreateUser { tenant_id, username } => {
+            let password = prompt_password()?;
+            print!("Confirm password: ");
+            io::stdout().flush()?;
+            let password2 = read_password()?;
+            if password != password2 {
+                return Err(anyhow!("Passwords do not match"));
+            }
+            tenant::create_tenant_user(&db_path, tenant_id, &username, &password)?;
+        }
+        Commands::ListTenants => {
+            let tenants = tenant::list_tenants(&db_path)?;
+            println!("Tenants:");
+            for tenant in tenants {
+                println!("  ID: {} - Name: {} - Created: {}", tenant.id, tenant.name, tenant.created_at);
+            }
         }
     }
 
