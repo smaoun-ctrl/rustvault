@@ -40,6 +40,12 @@ pub struct Entry {
 }
 
 #[derive(Serialize)]
+pub struct VersionInfo {
+    version: String,
+    name: String,
+}
+
+#[derive(Serialize)]
 pub struct ApiResponse<T> {
     success: bool,
     data: Option<T>,
@@ -219,6 +225,14 @@ pub async fn list_entries_handler(
     Ok(HttpResponse::Ok().json(ApiResponse::success(entries)))
 }
 
+pub async fn version_handler() -> ActixResult<HttpResponse> {
+    let version_info = VersionInfo {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        name: env!("CARGO_PKG_NAME").to_string(),
+    };
+    Ok(HttpResponse::Ok().json(ApiResponse::success(version_info)))
+}
+
 pub async fn delete_entry_handler(
     state: web::Data<AppState>,
     req: web::Json<DeleteEntryRequest>,
@@ -265,12 +279,15 @@ pub async fn run_server(port: u16, db_path: PathBuf) -> anyhow::Result<()> {
         App::new()
             .app_data(state.clone())
             .wrap(cors)
+            // Routes API en premier pour éviter les conflits avec les fichiers statiques
+            .route("/api/version", web::get().to(version_handler))
             .route("/api/unlock", web::post().to(unlock))
             .route("/api/lock", web::post().to(lock))
             .route("/api/entries", web::get().to(list_entries_handler))
             .route("/api/entries", web::post().to(add_entry_handler))
             .route("/api/entries/get", web::post().to(get_entry_handler))
             .route("/api/entries/delete", web::post().to(delete_entry_handler))
+            // Fichiers statiques en dernier
             .service(
                 actix_files::Files::new("/", "./web-frontend/dist")
                     .index_file("index.html")

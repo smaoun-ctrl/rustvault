@@ -1,4 +1,6 @@
 <script>
+  import { onMount } from 'svelte';
+
   let password = '';
   let isLocked = true;
   let error = '';
@@ -6,8 +8,36 @@
   let newName = '';
   let newValue = '';
   let loading = false;
+  let version = 'v0.1.0'; // Version par défaut
 
   const API_BASE = '/api';
+
+  // Charger la version au démarrage
+  async function loadVersion() {
+    try {
+      console.log('Chargement de la version depuis:', `${API_BASE}/version`);
+      const response = await fetch(`${API_BASE}/version`);
+      console.log('Réponse reçue:', response.status, response.statusText);
+      const data = await response.json();
+      console.log('Données reçues:', data);
+      if (data.success && data.data) {
+        version = `v${data.data.version}`;
+        console.log('Version définie à:', version);
+      } else {
+        console.error('Erreur API version:', data);
+        version = 'v0.1.0';
+      }
+    } catch (e) {
+      console.error('Erreur lors du chargement de la version:', e);
+      // En cas d'erreur, on peut afficher une version par défaut
+      version = 'v0.1.0';
+    }
+  }
+
+  // Charger la version au montage du composant
+  onMount(() => {
+    loadVersion();
+  });
 
   async function unlock() {
     if (!password) {
@@ -161,7 +191,10 @@
 
 <main>
   <div class="container">
-    <h1>🔐 RustVault</h1>
+    <div class="header-title">
+      <h1>🔐 RustVault</h1>
+      <span class="version-badge">{version || 'v0.1.0'}</span>
+    </div>
 
     {#if isLocked}
       <div class="lock-screen">
@@ -275,11 +308,30 @@
     padding: 40px;
   }
 
+  .header-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+  }
+
   h1 {
     text-align: center;
     color: #333;
-    margin-bottom: 30px;
+    margin: 0;
     font-size: 2.5em;
+  }
+
+  .version-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.9em;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   }
 
   h2 {
